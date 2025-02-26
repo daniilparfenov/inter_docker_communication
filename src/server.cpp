@@ -13,6 +13,7 @@
 
 #include "image_inverting.h"
 
+// Файловые дескрипторы для welcoming сокета и connection сокета
 int sockfd, newsockfd;
 
 void error(const char *msg) {
@@ -31,13 +32,17 @@ void handle_signal(int sig) {
 }
 
 int main(int argc, char *argv[]) {
+    // Обработчик сигнала SIGINT, чтобы корректно закрывать сокет при остановке процесса через
+    // терминал
     signal(SIGINT, handle_signal);
-    int portno;
-    socklen_t clilen;
-    size_t buffSize = sizeof(Task) * 16;
-    std::vector<Task> buffer(buffSize);
-    struct sockaddr_in serv_addr, cli_addr;
-    int n = 1;
+
+    // Номер порта для подключения и переменная для кол-ва полученных/отправленных байт
+    int portno, n;
+
+    socklen_t clilen;  // Размер адресса клиента
+
+    // Структуры для хранения интернет адресов сервера и клиента
+    sockaddr_in serv_addr, cli_addr;
 
     if (argc < 2) {
         fprintf(stderr, "ERROR, no port provided\n");
@@ -48,40 +53,44 @@ int main(int argc, char *argv[]) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) error("ERROR opening socket");
 
-    // Связываем сокет с адресом
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    portno = atoi(argv[1]);
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
-    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-        error("ERROR on binding");
+    bzero((char *)&serv_addr, sizeof(serv_addr));  // Инициализация адреса нулями
+    portno = atoi(argv[1]);                        // Считываем номер порта из консольныхаргументов
 
-    // Ждем клиента
-    listen(sockfd, 5);
+    // Заполнение данных о адресе сервера
+    serv_addr.sin_family = AF_INET;          // Тип домена
+    serv_addr.sin_addr.s_addr = INADDR_ANY;  // IP хоста
+    serv_addr.sin_port = htons(portno);  // Порт, перевод из host byte order в network byte order!
+
+    // Связываем сокет с адресом
+    if (bind(sockfd, (sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) error("ERROR on binding");
+
+    // Ожидание подключения клиента
+    listen(sockfd, 5);  // Сокет будет использоваться как пассивный (ожидать подключения)
     clilen = sizeof(cli_addr);
-    newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
+    // Блокирует процесс, пока клиент не подлючится, создается connection сокет
+    newsockfd = accept(sockfd, (sockaddr *)&cli_addr, &clilen);
     if (newsockfd < 0) error("ERROR on accept");
 
+    // Общение с клиентом
     while (1) {
-        // Получение размера данных
+        // Получение размера данных для обработки
         size_t dataSize;
         n = recv(newsockfd, &dataSize, sizeof(dataSize), 0);
         if (n == 0) break;
         if (n < 0) error("ERROR reading from socket");
 
-        // Получение данных
+        // Получение данных для обработки
         std::vector<uchar> buffer(dataSize);
         n = recv(newsockfd, buffer.data(), dataSize, 0);
         if (n < 0) error("ERROR reading from socket");
 
-        // Десериализация изображения
+        // Десериализация полученного изображения
         cv::Mat imagePart = cv::imdecode(buffer, cv::IMREAD_COLOR);
         if (imagePart.empty()) {
             error("ERROR deserialization image");
         }
 
-        // Инвертируем
+        // Инвертируем изображение
         invertImagePart(imagePart);
 
         // Сериализация и отправка клиенту
