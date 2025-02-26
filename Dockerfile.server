@@ -1,0 +1,27 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
+    net-tools \
+    netcat \
+    build-essential \
+    cmake \
+    bash \
+    libopencv-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY cmake_server/CMakeLists.txt /app/
+COPY include/image_inverting.h /app/include/
+COPY src/image_inverting.cpp /app/src/
+COPY src/server.cpp /app/src/
+
+RUN mkdir -p build && cd build && cmake .. && cmake --build .
+
+EXPOSE 2000
+
+# CMD ["./build/server", "2000"]
+CMD ["sleep", "infinity"]
