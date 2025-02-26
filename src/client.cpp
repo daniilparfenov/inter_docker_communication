@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
         error("ERROR connecting");
 
     // Загрузка изображения для обработки
-    std::string path = "../input_images/cute_dog.jpg";
+    std::string path = RESOURCES_DIR "/cute_dog.jpg";
     cv::Mat image = cv::imread(path);
     if (image.empty()) error("ERROR loading image");
 
