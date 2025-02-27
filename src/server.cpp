@@ -31,6 +31,34 @@ void handle_signal(int sig) {
     }
 }
 
+// Функция для гарантированной отправки данных
+void sendAll(int socket, const void *buffer, size_t length) {
+    const char *data = static_cast<const char *>(buffer);
+    size_t totalSent = 0;
+    while (totalSent < length) {
+        int sent = send(socket, data + totalSent, length - totalSent, 0);
+        if (sent < 0) {
+            error("ERROR writing to socket");
+        }
+        totalSent += sent;
+    }
+    std::cout << "Total bytes sent: " << totalSent << std::endl;
+}
+
+// Функция для гарантированного получения данных
+void recvAll(int socket, void *buffer, size_t length) {
+    char *data = static_cast<char *>(buffer);
+    size_t totalReceived = 0;
+    while (totalReceived < length) {
+        int received = recv(socket, data + totalReceived, length - totalReceived, 0);
+        if (received < 0) {
+            error("ERROR reading from socket");
+        }
+        totalReceived += received;
+    }
+    std::cout << "Total bytes received: " << totalReceived << std::endl;
+}
+
 int main(int argc, char *argv[]) {
     // Обработчик сигнала SIGINT, чтобы корректно закрывать сокет при остановке процесса через
     // терминал
@@ -75,31 +103,32 @@ int main(int argc, char *argv[]) {
     while (1) {
         // Получение размера данных для обработки
         size_t dataSize;
-        n = recv(newsockfd, &dataSize, sizeof(dataSize), 0);
-        if (n == 0) break;
-        if (n < 0) error("ERROR reading from socket");
+        std::cout << "Image data size receiving..." << std::endl;
+        recvAll(newsockfd, &dataSize, sizeof(dataSize));
 
         // Получение данных для обработки
         std::vector<uchar> buffer(dataSize);
-        n = recv(newsockfd, buffer.data(), dataSize, 0);
-        if (n < 0) error("ERROR reading from socket");
+        std::cout << "Image data receiving..." << n << std::endl;
+        recvAll(newsockfd, buffer.data(), dataSize);
 
         // Десериализация полученного изображения
+        std::cout << "Image deserialization..." << std::endl;
         cv::Mat imagePart = cv::imdecode(buffer, cv::IMREAD_COLOR);
         if (imagePart.empty()) {
             error("ERROR deserialization image");
         }
 
         // Инвертируем изображение
+        std::cout << "Image inverting..." << std::endl;
         invertImagePart(imagePart);
 
         // Сериализация и отправка клиенту
         cv::imencode(".jpg", imagePart, buffer);
         dataSize = buffer.size();
-        n = send(newsockfd, &dataSize, sizeof(dataSize), 0);
-        if (n < 0) error("ERROR writing to socket");
-        n = send(newsockfd, buffer.data(), buffer.size(), 0);
-        if (n < 0) error("ERROR writing to socket");
+        std::cout << "Inverted image data size sending..." << n << std::endl;
+        sendAll(newsockfd, &dataSize, sizeof(dataSize));
+        std::cout << "Inverted image data sending..." << n << std::endl;
+        sendAll(newsockfd, buffer.data(), buffer.size());
     }
 
     close(newsockfd);
