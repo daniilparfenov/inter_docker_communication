@@ -142,9 +142,9 @@ int main(int argc, char *argv[]) {
     // Сохранение изображения
     std::string filename = "output.jpg";
     if (cv::imwrite(filename, image)) {
-        std::cout << "Изображение сохранено в " << filename << std::endl;
+        std::cout << "The image saved in" << filename << std::endl;
     } else {
-        std::cerr << "Ошибка сохранения изображения!" << std::endl;
+        std::cerr << "ERROR image saving" << std::endl;
     }
 
     close(sockfd);
