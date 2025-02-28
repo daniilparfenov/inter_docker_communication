@@ -14,58 +14,124 @@
 #include "image_inverting.h"
 
 // Файловые дескрипторы для welcoming сокета и connection сокета
-int sockfd, newsockfd;
+int welcomeSocket_fd = -1, connectionSocket_fd = -1;
 
-void error(const char *msg) {
+// Отображает ошибку, связанную с подключением клиента, и закрывает сокет для соединения с ним
+void connectionError(const char *msg) {
     perror(msg);
-    exit(1);
+    if (connectionSocket_fd != -1) close(connectionSocket_fd);
 }
 
 // Обработчик сигнала
 void handle_signal(int sig) {
     if (sig == SIGINT) {
         printf("\n[Error] Received SIGINT. Exiting...\n");
-        close(sockfd);
-        close(newsockfd);
+        if (welcomeSocket_fd != -1) close(welcomeSocket_fd);
+        if (connectionSocket_fd != -1) close(connectionSocket_fd);
         exit(0);
     }
 }
 
-// Функция для гарантированной отправки данных
-void sendAll(int socket, const void *buffer, size_t length) {
+// Функция для гарантированной отправки всех данных
+int sendAll(int socket, const void *buffer, size_t length) {
     const char *data = static_cast<const char *>(buffer);
     size_t totalSent = 0;
     while (totalSent < length) {
         int sent = send(socket, data + totalSent, length - totalSent, 0);
         if (sent < 0) {
-            error("ERROR writing to socket");
+            return -1;
         }
         totalSent += sent;
     }
     std::cout << "Total bytes sent: " << totalSent << std::endl;
+    return totalSent;
 }
 
-// Функция для гарантированного получения данных
-void recvAll(int socket, void *buffer, size_t length) {
+// Функция для гарантированного получения всех данных
+int recvAll(int socket, void *buffer, size_t length) {
     char *data = static_cast<char *>(buffer);
     size_t totalReceived = 0;
     while (totalReceived < length) {
         int received = recv(socket, data + totalReceived, length - totalReceived, 0);
+        if (received == 0) {
+            break;
+        }
         if (received < 0) {
-            error("ERROR reading from socket");
+            return -1;
         }
         totalReceived += received;
     }
     std::cout << "Total bytes received: " << totalReceived << std::endl;
+    return totalReceived;
+}
+
+// Обрабатывает клиента
+void handleClient() {
+    int n = 1;
+    while (n > 0) {
+        // Получение размера данных для обработки
+        size_t dataSize;
+        std::cout << "Image data size receiving..." << std::endl;
+        n = recvAll(connectionSocket_fd, &dataSize, sizeof(dataSize));
+        if (n == 0) {
+            std::cout << "Client finished data sending" << std::endl;
+            break;
+        }
+        if (n < 0) {
+            connectionError("ERROR image data size receiving");
+            break;
+        }
+
+        // Получение данных для обработки
+        std::vector<uchar> buffer(dataSize);
+        std::cout << "Image data receiving..." << std::endl;
+        n = recvAll(connectionSocket_fd, buffer.data(), dataSize);
+        if (n == 0) {
+            std::cout << "Client finished data sending" << std::endl;
+            break;
+        }
+        if (n < 0) {
+            connectionError("ERROR image data receiving");
+            break;
+        }
+
+        // Десериализация полученного изображения
+        std::cout << "Image deserialization..." << std::endl;
+        cv::Mat imagePart = cv::imdecode(buffer, cv::IMREAD_COLOR);
+        if (imagePart.empty()) {
+            connectionError("ERROR deserialization image");
+        }
+
+        // Инвертируем изображение
+        std::cout << "Image inverting..." << std::endl;
+        invertImagePart(imagePart);
+
+        // Сериализация и отправка клиенту
+        cv::imencode(".jpg", imagePart, buffer);
+        dataSize = buffer.size();
+        std::cout << "Inverted image data size sending..." << std::endl;
+        n = sendAll(connectionSocket_fd, &dataSize, sizeof(dataSize));
+        if (n < 0) {
+            connectionError("ERROR inverted image data size sending");
+            break;
+        }
+        std::cout << "Inverted image data sending..." << std::endl;
+        n = sendAll(connectionSocket_fd, buffer.data(), buffer.size());
+        if (n < 0) {
+            connectionError("ERROR inverted image data sending");
+            break;
+        }
+    }
 }
 
 int main(int argc, char *argv[]) {
+    std::cout << "SERVER" << std::endl;
     // Обработчик сигнала SIGINT, чтобы корректно закрывать сокет при остановке процесса через
     // терминал
     signal(SIGINT, handle_signal);
 
     // Номер порта для подключения и переменная для кол-ва полученных/отправленных байт
-    int portno, n;
+    int portno;
 
     socklen_t clilen;  // Размер адресса клиента
 
@@ -73,13 +139,16 @@ int main(int argc, char *argv[]) {
     sockaddr_in serv_addr, cli_addr;
 
     if (argc < 2) {
-        fprintf(stderr, "ERROR, no port provided\n");
+        fprintf(stderr, "ERROR, no port to listen provided\n");
         exit(1);
     }
 
     // Создаем welcome-socket
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) error("ERROR opening socket");
+    welcomeSocket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (welcomeSocket_fd < 0) {
+        perror("ERROR opening welcome socket");
+        exit(1);
+    }
 
     bzero((char *)&serv_addr, sizeof(serv_addr));  // Инициализация адреса нулями
     portno = atoi(argv[1]);                        // Считываем номер порта из консольныхаргументов
@@ -90,48 +159,30 @@ int main(int argc, char *argv[]) {
     serv_addr.sin_port = htons(portno);  // Порт, перевод из host byte order в network byte order!
 
     // Связываем сокет с адресом
-    if (bind(sockfd, (sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) error("ERROR on binding");
-
+    if (bind(welcomeSocket_fd, (sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        perror("ERROR on binding welcome socket");
+        if (welcomeSocket_fd != -1) close(welcomeSocket_fd);
+        exit(1);
+    }
     // Ожидание подключения клиента
-    listen(sockfd, 5);  // Сокет будет использоваться как пассивный (ожидать подключения)
-    clilen = sizeof(cli_addr);
-    // Блокирует процесс, пока клиент не подлючится, создается connection сокет
-    newsockfd = accept(sockfd, (sockaddr *)&cli_addr, &clilen);
-    if (newsockfd < 0) error("ERROR on accept");
+    listen(welcomeSocket_fd, 5);  // Сокет будет использоваться как пассивный (ожидать подключения)
 
-    // Общение с клиентом
+    // Основной цикл сервера
     while (1) {
-        // Получение размера данных для обработки
-        size_t dataSize;
-        std::cout << "Image data size receiving..." << std::endl;
-        recvAll(newsockfd, &dataSize, sizeof(dataSize));
-
-        // Получение данных для обработки
-        std::vector<uchar> buffer(dataSize);
-        std::cout << "Image data receiving..." << n << std::endl;
-        recvAll(newsockfd, buffer.data(), dataSize);
-
-        // Десериализация полученного изображения
-        std::cout << "Image deserialization..." << std::endl;
-        cv::Mat imagePart = cv::imdecode(buffer, cv::IMREAD_COLOR);
-        if (imagePart.empty()) {
-            error("ERROR deserialization image");
+        clilen = sizeof(cli_addr);
+        // Блокирует процесс, пока клиент не подлючится, создается connection сокет
+        connectionSocket_fd = accept(welcomeSocket_fd, (sockaddr *)&cli_addr, &clilen);
+        if (connectionSocket_fd < 0) {
+            perror("ERROR accepting new client");
+            continue;
         }
+        std::cout << "New client connected" << std::endl;
 
-        // Инвертируем изображение
-        std::cout << "Image inverting..." << std::endl;
-        invertImagePart(imagePart);
-
-        // Сериализация и отправка клиенту
-        cv::imencode(".jpg", imagePart, buffer);
-        dataSize = buffer.size();
-        std::cout << "Inverted image data size sending..." << n << std::endl;
-        sendAll(newsockfd, &dataSize, sizeof(dataSize));
-        std::cout << "Inverted image data sending..." << n << std::endl;
-        sendAll(newsockfd, buffer.data(), buffer.size());
+        handleClient();
+        if (connectionSocket_fd != -1) close(connectionSocket_fd);
     }
 
-    close(newsockfd);
-    close(sockfd);
+    if (connectionSocket_fd != -1) close(connectionSocket_fd);
+    if (welcomeSocket_fd != -1) close(welcomeSocket_fd);
     return 0;
 }

@@ -51,6 +51,9 @@ void recvAll(int socket, void *buffer, size_t length) {
     size_t totalReceived = 0;
     while (totalReceived < length) {
         int received = recv(socket, data + totalReceived, length - totalReceived, 0);
+        if (received == 0) {
+            break;
+        }
         if (received < 0) {
             error("ERROR reading from socket");
         }
