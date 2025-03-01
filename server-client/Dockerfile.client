@@ -22,5 +22,4 @@ COPY input_images/cute_dog.jpg /app/input_images/cute_dog.jpg
 
 RUN mkdir -p build && cd build && cmake .. && cmake --build .
 
-# CMD ["./build/client", "server", "2000"]
-CMD ["sleep", "infinity"]
+CMD ["bash", "-c", "sleep 3 && ./build/client server 2000"]

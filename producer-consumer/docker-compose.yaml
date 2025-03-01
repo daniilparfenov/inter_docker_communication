@@ -1,0 +1,25 @@
+services:
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    container_name: rabbitmq_container
+    ports:
+      - "5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: user52
+      RABBITMQ_DEFAULT_PASS: pwd52
+
+  producer:
+    build: 
+      context: .
+      dockerfile: Dockerfile.producer
+    depends_on:
+      - rabbitmq
+
+  consumer:
+    build: 
+      context: .
+      dockerfile: Dockerfile.consumer
+    depends_on:
+      - rabbitmq
+    deploy:
+      replicas: 3  # 3 контейнера-потребителя

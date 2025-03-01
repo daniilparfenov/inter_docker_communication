@@ -23,5 +23,4 @@ RUN mkdir -p build && cd build && cmake .. && cmake --build .
 
 EXPOSE 2000
 
-# CMD ["./build/server", "2000"]
-CMD ["sleep", "infinity"]
+CMD ["bash", "-c", "./build/server 2000"]
