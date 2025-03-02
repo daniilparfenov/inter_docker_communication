@@ -2,44 +2,60 @@
 #include <amqpcpp/libev.h>
 #include <amqpcpp/linux_tcp.h>
 #include <ev.h>
-#include <unistd.h>
 
+#include <fstream>
 #include <iostream>
-#include <string>
+#include <opencv2/opencv.hpp>
+#include <vector>
 
 int main() {
-    // Создание цикла событий libev
     struct ev_loop *evloop = EV_DEFAULT;
-
-    // Создание соединения с RabbitMQ
     AMQP::Address address("amqp://user52:pwd52@host.docker.internal:5672/");
     AMQP::LibEvHandler handler(evloop);
     AMQP::TcpConnection connection(&handler, address);
     AMQP::TcpChannel channel(&connection);
 
-    // Отправка сообщений в очередь
-    std::string msg = "Hello, world! (from producer)";
+    std::string path = RESOURCES_DIR "/cute_dog.jpg";
+    std::vector<uchar> img_data;
 
-    // Создание очереди и отправка сообщений
-    channel.declareQueue("task_queue", AMQP::durable)
-        .onSuccess([&connection, &channel, &msg](const std::string &name, uint32_t, uint32_t) {
-            /*
-             * Отправка сообщений в очередь
-             * В данном случае отправляется 10 сообщений с интервалом в 2 секунды
-             */
-            for (int i = 0; i < 10; i++) {
-                channel.publish("", name, msg.c_str());
-                std::cout << "Отправлено coобщение " << msg << " в очередь: " << name << std::endl;
-                sleep(2);
-            }
-            connection.close();  // Закрытие соединения
+    cv::Mat image = cv::imread(path);
+    if (image.empty()) {
+        std::cerr << "Ошибка: не удалось загрузить изображение " << path << std::endl;
+        return 1;
+    }
+
+    cv::imencode(".jpg", image, img_data);
+
+    channel.declareQueue("image_queue", AMQP::durable)
+        .onSuccess([&connection, &channel, &img_data](const std::string &name, uint32_t, uint32_t) {
+            channel.publish("", name, reinterpret_cast<const char *>(img_data.data()),
+                            img_data.size());
+            std::cout << "Изображение отправлено в очередь: " << name << std::endl;
+            // connection.close();
+        })
+        .onError(
+            [](const char *message) { std::cerr << "Ошибка отправки: " << message << std::endl; });
+
+    channel.declareQueue("processed_image_queue", AMQP::durable)
+        .onSuccess([&channel](const std::string &name, uint32_t, uint32_t) {
+            channel.consume(name, AMQP::noack)
+                .onReceived([](const AMQP::Message &message, uint64_t, bool) {
+                    std::vector<uchar> img_data(message.body(),
+                                                message.body() + message.bodySize());
+                    cv::Mat img = cv::imdecode(img_data, cv::IMREAD_COLOR);
+                    if (img.empty()) {
+                        std::cerr << "Ошибка: не удалось декодировать полученное изображение"
+                                  << std::endl;
+                        return;
+                    }
+                    cv::imwrite("output.jpg", img);
+                    std::cout << "Обработанное изображение сохранено как output.jpg" << std::endl;
+                });
         })
         .onError([](const char *message) {
-            std::cout << "Ошибка при отправлении сообщения: " << message << std::endl;
+            std::cerr << "Ошибка при получении обработанного изображения: " << message << std::endl;
         });
-    ;
 
-    // Запуск цикла событий libev
     ev_run(evloop, 0);
     return 0;
 }

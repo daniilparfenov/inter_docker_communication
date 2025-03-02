@@ -23,6 +23,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
 
 COPY cmake_producer/CMakeLists.txt /app/
 COPY src/producer.cpp /app/
+COPY input_images/cute_dog.jpg /app/input_images/
 
 RUN mkdir -p build && cd build && cmake .. && cmake --build .
 
