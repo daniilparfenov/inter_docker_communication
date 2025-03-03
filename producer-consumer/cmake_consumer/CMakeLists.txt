@@ -10,9 +10,3 @@ link_directories(${AMQP_ROOT}/build/bin)
 
 add_executable(consumer consumer.cpp)
 target_link_libraries(consumer PRIVATE amqpcpp ${OpenCV_LIBS} -lev)
-
-# Указываем путь к директории с входными изображениями
-set(RESOURCES_DIR "${CMAKE_SOURCE_DIR}/input_images")
-
-# Передаем этот путь в код через определение препроцессора
-add_definitions(-DRESOURCES_DIR="${RESOURCES_DIR}")
