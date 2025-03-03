@@ -26,4 +26,4 @@ COPY src/consumer.cpp /app/
 
 RUN mkdir -p build && cd build && cmake .. && cmake --build .
 
-CMD ["bash", "-c", "sleep 33 && ./build/consumer"]
+CMD ["bash", "-c", "sleep 10 && ./build/consumer"]
